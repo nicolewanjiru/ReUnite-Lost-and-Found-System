@@ -1,19 +1,18 @@
 <?php
-session_start();
+include 'includes/session.php';
 include 'includes/config.php';
 
 $message = "";
 
 if(isset($_POST['login'])){
 
-    $email = $_POST['email'];
+    $email = mysqli_real_escape_string($conn, $_POST['email']);
     $password = $_POST['password'];
 
-    $sql = "SELECT * FROM users WHERE email='$email'";
-
+    $sql = "SELECT * FROM users WHERE email='$email' LIMIT 1";
     $result = mysqli_query($conn, $sql);
 
-    if(mysqli_num_rows($result) == 1){
+    if($result && mysqli_num_rows($result) == 1){
 
         $user = mysqli_fetch_assoc($result);
 
@@ -23,7 +22,6 @@ if(isset($_POST['login'])){
             $_SESSION['role'] = $user['role'];
             $_SESSION['email'] = $user['email'];
 
-            // Redirect based on role
             if($user['role'] == 'admin'){
                 header("Location: admin/dashboard.php");
             } else {
@@ -46,24 +44,36 @@ if(isset($_POST['login'])){
 <html>
 <head>
     <title>Login - ReUnite</title>
+    <link rel="stylesheet" href="css/style.css">
 </head>
+
 <body>
 
-<h2>Login</h2>
+<?php include 'includes/navbar.php'; ?>
 
-<p><?php echo $message; ?></p>
+<div class="container">
+    <div class="panel auth-panel">
+        <h1>Login</h1>
 
-<form method="POST">
+        <?php if($message != ""): ?>
+            <p class="notice error"><?php echo htmlspecialchars($message); ?></p>
+        <?php endif; ?>
 
-    <label>Email:</label><br>
-    <input type="email" name="email" required><br><br>
+        <form method="POST">
+            <input type="text" name="email" placeholder="Email" required>
+            <input type="password" name="password" placeholder="Password" required>
 
-    <label>Password:</label><br>
-    <input type="password" name="password" required><br><br>
+            <button type="submit" name="login" class="btn">Login</button>
+        </form>
 
-    <button type="submit" name="login">Login</button>
+        <p class="form-note">
+            Don't have an account?
+            <a href="register.php">Register</a>
+        </p>
+    </div>
+</div>
 
-</form>
+<?php include 'includes/footer.php'; ?>
 
 </body>
 </html>

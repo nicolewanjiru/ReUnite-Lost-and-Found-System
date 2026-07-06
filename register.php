@@ -1,23 +1,22 @@
 <?php
+include 'includes/session.php';
 include 'includes/config.php';
 
 $message = "";
 
 if(isset($_POST['register'])){
 
-    $email = $_POST['email'];
-    $password = $_POST['password'];
+    $email = mysqli_real_escape_string($conn, $_POST['email']);
+    $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
+    $role = "student";
 
-    // Encrypt password
-    $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-
-    $sql = "INSERT INTO users(email, password)
-            VALUES('$email', '$hashed_password')";
+    $sql = "INSERT INTO users (email, password, role)
+            VALUES ('$email', '$password', '$role')";
 
     if(mysqli_query($conn, $sql)){
-        $message = "Registration Successful!";
+        $message = "Account created successfully!";
     } else {
-        $message = "Error: " . mysqli_error($conn);
+        $message = "Error creating account!";
     }
 }
 ?>
@@ -26,26 +25,33 @@ if(isset($_POST['register'])){
 <html>
 <head>
     <title>Register - ReUnite</title>
+    <link rel="stylesheet" href="css/style.css">
 </head>
+
 <body>
 
-<h2>Student Registration</h2>
+<?php include 'includes/navbar.php'; ?>
 
-<p><?php echo $message; ?></p>
+<div class="container">
+    <div class="panel auth-panel">
+        <h1>Create Account</h1>
 
-<form method="POST">
+        <?php if($message != ""): ?>
+            <p class="notice success"><?php echo htmlspecialchars($message); ?></p>
+        <?php endif; ?>
 
-    <label>Email:</label><br>
-    <input type="email" name="email" required><br><br>
+        <form method="POST">
+            <input type="text" name="email" placeholder="Email" required>
+            <input type="password" name="password" placeholder="Password" required>
 
-    <label>Password:</label><br>
-    <input type="password" name="password" required><br><br>
+            <button type="submit" name="register" class="btn">Register</button>
+        </form>
 
-    <button type="submit" name="register">
-        Register
-    </button>
+        <p class="form-note">Already have an account? <a href="login.php">Login</a></p>
+    </div>
+</div>
 
-</form>
+<?php include 'includes/footer.php'; ?>
 
 </body>
 </html>

@@ -1,83 +1,133 @@
 <?php
-session_start();
+include '../includes/session.php';
 include '../includes/config.php';
+require_student();
 
-if(!isset($_SESSION['user_id'])){
-    header("Location: ../login.php");
-    exit();
+$keyword = isset($_GET['keyword']) ? trim($_GET['keyword']) : "";
+$category_filter = isset($_GET['category']) ? $_GET['category'] : "all";
+$status_filter = isset($_GET['status']) ? $_GET['status'] : "all";
+$location_filter = isset($_GET['location']) ? trim($_GET['location']) : "";
+
+$where = array("1=1");
+
+if($keyword !== ""){
+    $safe_keyword = mysqli_real_escape_string($conn, $keyword);
+    $where[] = "(item_name LIKE '%$safe_keyword%' OR description LIKE '%$safe_keyword%' OR location LIKE '%$safe_keyword%')";
 }
 
-$results = null;
-
-if(isset($_POST['search'])){
-
-    $keyword = $_POST['keyword'];
-
-    $sql = "SELECT * FROM items
-            WHERE item_name LIKE '%$keyword%'
-            OR description LIKE '%$keyword%'
-            OR category LIKE '%$keyword%'
-            OR location LIKE '%$keyword%'";
-
-    $results = mysqli_query($conn, $sql);
+if($category_filter === "lost" || $category_filter === "found"){
+    $safe_category = mysqli_real_escape_string($conn, $category_filter);
+    $where[] = "category='$safe_category'";
 }
+
+if($status_filter === "pending" || $status_filter === "approved" || $status_filter === "matched"){
+    $safe_status = mysqli_real_escape_string($conn, $status_filter);
+    $where[] = "status='$safe_status'";
+}
+
+if($location_filter !== ""){
+    $safe_location = mysqli_real_escape_string($conn, $location_filter);
+    $where[] = "location LIKE '%$safe_location%'";
+}
+
+$sql = "SELECT * FROM items
+        WHERE " . implode(" AND ", $where) . "
+        ORDER BY category ASC, date_reported DESC";
+
+$items = mysqli_query($conn, $sql);
+
+$locations = mysqli_query($conn, "SELECT DISTINCT location FROM items WHERE location<>'' ORDER BY location ASC");
 ?>
 
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Search Items</title>
+    <title>Item Catalog - ReUnite</title>
+    <link rel="stylesheet" href="../css/style.css">
 </head>
+
 <body>
 
-<h2>Search Items</h2>
+<?php include '../includes/navbar.php'; ?>
 
-<form method="POST">
+<div class="container wide-container">
+    <div class="panel">
+        <div class="page-heading">
+            <span class="ui-icon">S</span>
+            <div>
+                <h1>Item Catalog</h1>
+                <p>Browse all logged lost and found items. Sensitive verification details and match scores are kept for administrators only.</p>
+            </div>
+        </div>
 
-    <input type="text"
-           name="keyword"
-           placeholder="Enter keyword..."
-           required>
+        <form method="GET" class="catalog-filters">
+            <input type="text" name="keyword" value="<?php echo htmlspecialchars($keyword); ?>" placeholder="Search by item, public description, or location">
 
-    <button type="submit" name="search">
-        Search
-    </button>
+            <select name="category">
+                <option value="all" <?php echo $category_filter === "all" ? "selected" : ""; ?>>All categories</option>
+                <option value="lost" <?php echo $category_filter === "lost" ? "selected" : ""; ?>>Lost items</option>
+                <option value="found" <?php echo $category_filter === "found" ? "selected" : ""; ?>>Found items</option>
+            </select>
 
-</form>
+            <select name="status">
+                <option value="all" <?php echo $status_filter === "all" ? "selected" : ""; ?>>All statuses</option>
+                <option value="pending" <?php echo $status_filter === "pending" ? "selected" : ""; ?>>Pending</option>
+                <option value="approved" <?php echo $status_filter === "approved" ? "selected" : ""; ?>>Approved</option>
+                <option value="matched" <?php echo $status_filter === "matched" ? "selected" : ""; ?>>Matched</option>
+            </select>
 
-<hr>
+            <select name="location">
+                <option value="">All locations</option>
+                <?php if($locations): ?>
+                    <?php while($location = mysqli_fetch_assoc($locations)): ?>
+                        <option value="<?php echo htmlspecialchars($location['location']); ?>" <?php echo $location_filter === $location['location'] ? "selected" : ""; ?>>
+                            <?php echo htmlspecialchars($location['location']); ?>
+                        </option>
+                    <?php endwhile; ?>
+                <?php endif; ?>
+            </select>
 
-<?php
+            <button type="submit" class="btn">Filter</button>
+            <a href="search_items.php" class="btn btn-secondary">Reset</a>
+        </form>
+    </div>
 
-if($results){
+    <div class="catalog-grid">
+        <?php if($items && mysqli_num_rows($items) > 0): ?>
+            <?php while($row = mysqli_fetch_assoc($items)): ?>
+                <div class="catalog-card">
+                    <div class="item-title-row">
+                        <span class="category-chip category-<?php echo htmlspecialchars($row['category']); ?>">
+                            <?php echo ucfirst(htmlspecialchars($row['category'])); ?>
+                        </span>
+                        <span class="status-badge status-<?php echo htmlspecialchars($row['status']); ?>">
+                            <?php echo ucfirst(htmlspecialchars($row['status'])); ?>
+                        </span>
+                    </div>
 
-    if(mysqli_num_rows($results) > 0){
+                    <h3><?php echo htmlspecialchars($row['item_name']); ?></h3>
+                    <p><?php echo htmlspecialchars($row['description']); ?></p>
+                    <p><strong>Location:</strong> <?php echo htmlspecialchars($row['location']); ?></p>
+                    <p><strong>Date:</strong> <?php echo htmlspecialchars($row['date_reported']); ?></p>
 
-        while($row = mysqli_fetch_assoc($results)){
+                    <?php if($row['category'] === 'found' && $row['status'] === 'approved'): ?>
+                        <a class="btn btn-small" href="claim_item.php?item_id=<?php echo $row['item_id']; ?>">Claim Found Item</a>
+                    <?php elseif($row['category'] === 'lost'): ?>
+                        <span class="muted">Lost report only</span>
+                    <?php else: ?>
+                        <span class="muted">Claim unavailable until approved</span>
+                    <?php endif; ?>
+                </div>
+            <?php endwhile; ?>
+        <?php else: ?>
+            <div class="panel">
+                <p class="empty-state">No items match those filters.</p>
+            </div>
+        <?php endif; ?>
+    </div>
+</div>
 
-            echo "<h3>".$row['item_name']."</h3>";
-echo "<p>Description: ".$row['description']."</p>";
-echo "<p>Category: ".$row['category']."</p>";
-echo "<p>Location: ".$row['location']."</p>";
-echo "<p>Status: ".$row['status']."</p>";
-
-echo "<a href='claim_item.php?item_id=".$row['item_id']."'>
-        Claim Item
-      </a>";
-
-echo "<hr>";
-        }
-
-    } else {
-
-        echo "No matching items found.";
-
-    }
-}
-
-?>
-
-<a href="dashboard.php">Back to Dashboard</a>
+<?php include '../includes/footer.php'; ?>
 
 </body>
 </html>

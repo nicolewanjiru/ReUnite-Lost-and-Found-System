@@ -14,10 +14,10 @@ if(isset($_POST['submit'])){
     $date_reported = mysqli_real_escape_string($conn, $_POST['date_reported']);
 
     $sql = "INSERT INTO items (user_id, item_name, description, category, location, status, date_reported)
-            VALUES ('$user_id', '$item_name', '$description', 'lost', '$location', 'pending', '$date_reported')";
+            VALUES ('$user_id', '$item_name', '$description', 'found', '$location', 'pending', '$date_reported')";
 
     if(mysqli_query($conn, $sql)){
-        $message = "Report submitted successfully!";
+        $message = "Found item submitted successfully!";
     } else {
         $message = "Error submitting report!";
     }
@@ -27,7 +27,7 @@ if(isset($_POST['submit'])){
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Report Lost Item - ReUnite</title>
+    <title>Report Found Item - ReUnite</title>
     <link rel="stylesheet" href="../css/style.css">
 </head>
 
@@ -37,8 +37,8 @@ if(isset($_POST['submit'])){
 
 <div class="container">
     <div class="panel">
-        <h1>Report Lost Item</h1>
-        <p>Fill in the details below.</p>
+        <h1>Report Found Item</h1>
+        <p>Help return items to their owners.</p>
 
         <?php if($message != ""): ?>
             <p class="notice success"><?php echo htmlspecialchars($message); ?></p>
@@ -46,8 +46,8 @@ if(isset($_POST['submit'])){
 
         <form method="POST">
             <input type="text" name="item_name" placeholder="Item Name" required>
-            <textarea name="description" placeholder="Description" required></textarea>
-            <input type="text" name="location" placeholder="Last Seen Location" required>
+            <textarea name="description" placeholder="Describe the item..." required></textarea>
+            <input type="text" name="location" placeholder="Where you found it" required>
             <input type="date" name="date_reported" required>
 
             <button type="submit" name="submit" class="btn">Submit Report</button>
