@@ -1,10 +1,10 @@
-<?php
+<<?php
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-
-if (!isset($conn) || !$conn) {
+// Ensure config is loaded for database connection
+if (!isset($conn)) {
     include_once __DIR__ . '/config.php';
 }
 
@@ -13,16 +13,13 @@ $role = $_SESSION['role'] ?? null;
 $email = $_SESSION['email'] ?? null;
 $user_id = $_SESSION['user_id'] ?? 0;
 
-
-if (file_exists(__DIR__ . '/notifications.php')) {
+// Include notification helper and get unread count only if connected
+$unread_count = 0;
+if (isset($conn) && $conn && $user_id > 0) {
     include_once __DIR__ . '/notifications.php';
-    if ($user_id > 0 && function_exists('get_unread_count')) {
+    if (function_exists('get_unread_count')) {
         $unread_count = get_unread_count($conn, $user_id);
-    } else {
-        $unread_count = 0;
     }
-} else {
-    $unread_count = 0;
 }
 ?>
 
@@ -30,17 +27,17 @@ if (file_exists(__DIR__ . '/notifications.php')) {
     <a class="nav-left" href="<?php echo $base; ?>/index.php">ReUnite</a>
 
     <div class="nav-right">
-        <!-- Bell Icon with Unread Badge -->
+        <!-- Bell Icon -->
         <?php if (isset($_SESSION['user_id'])): ?>
             <a href="<?php echo $base; ?>/notifications.php" class="nav-bell" title="Notifications">
-                <i class="fa-solid fa-bell"></i>
+                <i class="fa-regular fa-bell"></i>
                 <?php if ($unread_count > 0): ?>
                     <span class="badge"><?php echo $unread_count; ?></span>
                 <?php endif; ?>
             </a>
         <?php endif; ?>
 
-        
+        <!-- User status -->
         <?php if (isset($_SESSION['user_id'])): ?>
             <span class="user-status">
                 <span class="status-dot"></span>
