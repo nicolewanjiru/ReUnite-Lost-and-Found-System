@@ -3,7 +3,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$base = "/reunite";
+$base = "/ReUnite-Lost-and-Found-System";
 $role = $_SESSION['role'] ?? null;
 ?>
 
