@@ -2,6 +2,7 @@
 include '../includes/session.php';
 include '../includes/config.php';
 include '../includes/matching.php';
+include '../includes/notifications.php';
 require_student();
 
 $message = "";
@@ -17,10 +18,32 @@ if(isset($_POST['submit'])){
     $claimant_id = (int) $_SESSION['user_id'];
     $proof_photo = "";
 
-    $found_result = mysqli_query($conn, "SELECT * FROM items WHERE item_id='$item_id' AND category='found' AND status='approved' LIMIT 1");
-    $lost_result = mysqli_query($conn, "SELECT * FROM items WHERE item_id='$lost_item_id' AND user_id='$claimant_id' AND category='lost' LIMIT 1");
-    $duplicate_result = mysqli_query($conn, "SELECT claim_id FROM claims WHERE item_id='$item_id' AND claimant_id='$claimant_id' AND status IN ('pending','approved') LIMIT 1");
+    // Verify found item
+    $found_check = "SELECT * FROM items 
+                    WHERE item_id='$item_id' 
+                    AND report_type='found' 
+                    AND status NOT IN ('matched','donated','returned') 
+                    LIMIT 1";
+    $found_result = mysqli_query($conn, $found_check);
 
+    // Verify lost item belongs to student
+    $lost_check = "SELECT * FROM items 
+                   WHERE item_id='$lost_item_id' 
+                   AND user_id='$claimant_id' 
+                   AND report_type='lost' 
+                   AND status NOT IN ('matched','donated','returned') 
+                   LIMIT 1";
+    $lost_result = mysqli_query($conn, $lost_check);
+
+    // Check duplicate claim
+    $duplicate_check = "SELECT claim_id FROM claims 
+                        WHERE item_id='$item_id' 
+                        AND claimant_id='$claimant_id' 
+                        AND status='pending' 
+                        LIMIT 1";
+    $duplicate_result = mysqli_query($conn, $duplicate_check);
+
+    // File upload handling
     if(isset($_FILES['proof_photo']) && $_FILES['proof_photo']['error'] !== UPLOAD_ERR_NO_FILE){
         $allowed_types = array('image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp');
         $tmp_name = $_FILES['proof_photo']['tmp_name'];
@@ -52,10 +75,10 @@ if(isset($_POST['submit'])){
             $message = "This found item is not available for claiming.";
             $message_class = "error";
         } elseif(!$lost_result || mysqli_num_rows($lost_result) !== 1) {
-            $message = "Choose one of your lost reports before submitting a claim.";
+            $message = "Choose one of your active lost reports before submitting a claim.";
             $message_class = "error";
         } elseif($duplicate_result && mysqli_num_rows($duplicate_result) > 0) {
-            $message = "You already have an active claim for this item.";
+            $message = "You already have a pending claim for this item.";
             $message_class = "error";
         } else {
             $found_item = mysqli_fetch_assoc($found_result);
@@ -63,12 +86,24 @@ if(isset($_POST['submit'])){
             $match_score = calculate_match_score($lost_item, $found_item, $_POST['proof']);
             $safe_photo = mysqli_real_escape_string($conn, $proof_photo);
 
-            $sql = "INSERT INTO claims (item_id, lost_item_id, claimant_id, proof, proof_photo, match_score, status)
-                    VALUES ('$item_id', '$lost_item_id', '$claimant_id', '$proof', '$safe_photo', '$match_score', 'pending')";
+            $insert_sql = "INSERT INTO claims (item_id, lost_item_id, claimant_id, user_id, proof, proof_photo, match_score, status)
+                           VALUES ('$item_id', '$lost_item_id', '$claimant_id', '$claimant_id', '$proof', '$safe_photo', '$match_score', 'pending')";
 
-            if(mysqli_query($conn, $sql)){
-                $message = "Claim submitted for admin review. The administrator will compare your proof with protected item details.";
+            if(mysqli_query($conn, $insert_sql)){
+                $message = "Claim submitted for administrator review.";
                 $message_class = "success";
+                $item_id = 0;
+
+                // Notify all admins
+                $admin_query = mysqli_query($conn, "SELECT user_id FROM users WHERE role='admin'");
+                if ($admin_query) {
+                    while ($admin = mysqli_fetch_assoc($admin_query)) {
+                        $admin_id = $admin['user_id'];
+                        $claim_link = "/reunite/admin/dashboard.php";
+                        $msg = "A new claim has been submitted for item: " . $found_item['item_name'] . " by " . $_SESSION['email'];
+                        add_notification($conn, $admin_id, $msg, $claim_link);
+                    }
+                }
             } else {
                 $message = "Unable to submit claim.";
                 $message_class = "error";
@@ -77,17 +112,30 @@ if(isset($_POST['submit'])){
     }
 }
 
+// Fetch found item details
 if($item_id > 0){
-    $item_sql = "SELECT * FROM items WHERE item_id='$item_id' AND category='found' LIMIT 1";
+    $item_sql = "SELECT * FROM items 
+                 WHERE item_id='$item_id' 
+                 AND report_type='found' 
+                 AND status NOT IN ('matched','donated','returned') 
+                 LIMIT 1";
     $item_result = mysqli_query($conn, $item_sql);
 
     if($item_result && mysqli_num_rows($item_result) == 1){
         $item = mysqli_fetch_assoc($item_result);
+    } else {
+        header("Location: search_items.php");
+        exit();
     }
 }
 
+
 $user_id = (int) $_SESSION['user_id'];
-$lost_sql = "SELECT * FROM items WHERE user_id='$user_id' AND category='lost' ORDER BY date_reported DESC";
+$lost_sql = "SELECT * FROM items 
+             WHERE user_id='$user_id' 
+             AND report_type='lost' 
+             AND status NOT IN ('matched','donated','returned') 
+             ORDER BY date_reported DESC";
 $lost_result = mysqli_query($conn, $lost_sql);
 
 if($lost_result) {
@@ -113,7 +161,7 @@ if($lost_result) {
             <span class="ui-icon">C</span>
             <div>
                 <h1>Claim Item</h1>
-                <p>Submit private proof for admin verification. Match scores are only visible to administrators.</p>
+                <p>Submit private proof of ownership. The administrator will review your claim.</p>
             </div>
         </div>
 
@@ -124,46 +172,46 @@ if($lost_result) {
         <?php if($item): ?>
             <div class="item-card single-item">
                 <div>
-                    <h3>Public Found Item Details</h3>
+                    <h3>Found Item Details</h3>
                     <p><strong>Name:</strong> <?php echo htmlspecialchars($item['item_name']); ?></p>
+                    <p><strong>Category:</strong> <?php echo htmlspecialchars($item['category']); ?></p>
                     <p><strong>Description:</strong> <?php echo htmlspecialchars($item['description']); ?></p>
                     <p><strong>Location:</strong> <?php echo htmlspecialchars($item['location']); ?></p>
-                    <p><strong>Status:</strong> <?php echo ucfirst(htmlspecialchars($item['status'])); ?></p>
+                    <p><strong>Date:</strong> <?php echo htmlspecialchars($item['date_reported']); ?></p>
                 </div>
             </div>
 
-            <?php if($item['status'] == 'approved' && count($lost_reports) > 0): ?>
+            <?php if(count($lost_reports) > 0): ?>
                 <form method="POST" enctype="multipart/form-data" class="claim-form">
                     <input type="hidden" name="item_id" value="<?php echo $item['item_id']; ?>">
 
-                    <label for="lost_item_id">Which of your lost reports does this match?</label>
+                    <label for="lost_item_id">Which of your lost reports matches this found item?</label>
                     <select id="lost_item_id" name="lost_item_id" required>
                         <?php foreach($lost_reports as $lost): ?>
                             <option value="<?php echo $lost['item_id']; ?>">
-                                <?php echo htmlspecialchars($lost['item_name']); ?> - <?php echo htmlspecialchars($lost['location']); ?>
+                                <?php echo htmlspecialchars($lost['item_name']); ?> – <?php echo htmlspecialchars($lost['location']); ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
 
                     <label for="proof">Private proof of ownership</label>
-                    <textarea id="proof" name="proof" placeholder="Add details only the true owner would know: hidden marks, contents, serial number, wallpaper, scratches, exact time/place lost..." required></textarea>
+                    <textarea id="proof" name="proof" placeholder="Add details only the true owner would know..." required></textarea>
 
                     <label for="proof_photo">Upload proof photo (optional)</label>
                     <input id="proof_photo" type="file" name="proof_photo" accept="image/jpeg,image/png,image/webp">
-                    <p class="form-note">JPG, PNG, or WEBP only. Maximum 2MB.</p>
+                    <p class="form-note">JPG, PNG, or WEBP. Max 2MB.</p>
 
-                    <button type="submit" name="submit" class="btn">Submit Claim for Review</button>
+                    <button type="submit" name="submit" class="btn">Submit Claim</button>
                 </form>
-            <?php elseif(count($lost_reports) === 0): ?>
-                <p class="empty-state">Please report your lost item first, then return here to claim a matching found item.</p>
             <?php else: ?>
-                <p class="empty-state">Only approved found items can be claimed.</p>
+                <p class="empty-state">You don't have any active lost reports. Please report your lost item first.</p>
+                <a class="text-link" href="report_lost.php">Report a Lost Item</a>
             <?php endif; ?>
         <?php else: ?>
-            <p class="empty-state">Choose an approved found item from the catalog to submit a claim.</p>
+            
         <?php endif; ?>
 
-        <a class="text-link" href="search_items.php">Back to Catalog</a>
+        <a class="text-link" href="search_items.php">← Back to Catalog</a>
     </div>
 </div>
 

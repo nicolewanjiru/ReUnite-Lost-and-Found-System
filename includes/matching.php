@@ -1,13 +1,14 @@
 <?php
 
+
 function normalize_match_text($text)
 {
     $text = strtolower($text ?? '');
     $text = preg_replace('/[^a-z0-9\s]/', ' ', $text);
     $text = preg_replace('/\s+/', ' ', $text);
-
     return trim($text);
 }
+
 
 function tokenize_match_text($text)
 {
@@ -25,8 +26,10 @@ function tokenize_match_text($text)
     return array_values(array_unique($tokens));
 }
 
+
 function calculate_match_score($lost_item, $found_item, $proof = '')
 {
+   
     $lost_text = implode(' ', array(
         $lost_item['item_name'] ?? '',
         $lost_item['description'] ?? '',
@@ -49,16 +52,21 @@ function calculate_match_score($lost_item, $found_item, $proof = '')
         return 0;
     }
 
+    
     $shared = array_intersect($lost_tokens, $found_tokens);
     $coverage = count($shared) / max(count($lost_tokens), count($found_tokens));
 
+    
     similar_text(normalize_match_text($lost_text), normalize_match_text($found_text), $similarity);
 
-    $category_score = 0;
-    if (($lost_item['category'] ?? '') === 'lost' && ($found_item['category'] ?? '') === 'found') {
-        $category_score = 100;
+    $category_match = 0;
+    if (!empty($lost_item['category']) && !empty($found_item['category'])) {
+        if (strcasecmp($lost_item['category'], $found_item['category']) === 0) {
+            $category_match = 100;
+        }
     }
 
+    
     $location_score = 0;
     if (!empty($lost_item['location']) && !empty($found_item['location'])) {
         similar_text(
@@ -68,22 +76,26 @@ function calculate_match_score($lost_item, $found_item, $proof = '')
         );
     }
 
+    
     $proof_overlap = 0;
     if (count($proof_tokens) > 0) {
         $proof_overlap = count(array_intersect($proof_tokens, $found_tokens)) / count($proof_tokens);
     }
 
-    $score = ($coverage * 45) + ($similarity * 0.25) + ($category_score * 0.15) + ($location_score * 0.10) + ($proof_overlap * 5);
+    // Weighted sum
+    $score = ($coverage * 40) + ($similarity * 0.20) + ($category_match * 0.20) + ($location_score * 0.10) + ($proof_overlap * 10);
 
     return min(100, round($score, 2));
 }
 
-function find_best_lost_match($conn, $user_id, $found_item, $proof = '')
+
+function find_best_lost_match($conn, $user_id, $found_item)
 {
     $user_id = (int) $user_id;
     $sql = "SELECT * FROM items
-            WHERE user_id='$user_id'
-            AND category='lost'
+            WHERE user_id = $user_id
+            AND report_type = 'lost'
+            AND status IN ('pending', 'approved')
             ORDER BY date_reported DESC";
 
     $result = mysqli_query($conn, $sql);
@@ -91,8 +103,7 @@ function find_best_lost_match($conn, $user_id, $found_item, $proof = '')
 
     if ($result) {
         while ($lost_item = mysqli_fetch_assoc($result)) {
-            $score = calculate_match_score($lost_item, $found_item, $proof);
-
+            $score = calculate_match_score($lost_item, $found_item, '');
             if ($score > $best['score']) {
                 $best = array('item' => $lost_item, 'score' => $score);
             }
@@ -102,4 +113,41 @@ function find_best_lost_match($conn, $user_id, $found_item, $proof = '')
     return $best;
 }
 
+
+function get_all_matches_for_found($conn, $found_item_id, $min_score = 70)
+{
+    $found_sql = "SELECT * FROM items WHERE item_id = " . (int)$found_item_id . " LIMIT 1";
+    $found_result = mysqli_query($conn, $found_sql);
+    if (!$found_result || mysqli_num_rows($found_result) === 0) {
+        return [];
+    }
+    $found_item = mysqli_fetch_assoc($found_result);
+
+    
+    $lost_sql = "SELECT * FROM items
+                 WHERE report_type = 'lost'
+                 AND status IN ('pending', 'approved')
+                 ORDER BY date_reported DESC";
+    $lost_result = mysqli_query($conn, $lost_sql);
+    if (!$lost_result) {
+        return [];
+    }
+
+    $matches = array();
+    while ($lost_item = mysqli_fetch_assoc($lost_result)) {
+        $score = calculate_match_score($lost_item, $found_item, '');
+        if ($score >= $min_score) {
+            $matches[] = array(
+                'lost_item' => $lost_item,
+                'score' => $score
+            );
+        }
+    }
+
+    usort($matches, function($a, $b) {
+        return $b['score'] - $a['score'];
+    });
+
+    return $matches;
+}
 ?>
